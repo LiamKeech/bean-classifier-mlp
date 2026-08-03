@@ -32,14 +32,11 @@ features (area, perimeter, axis lengths, eccentricity, shape factors, etc.).
 
 ## Techniques explored
 
-To improve training time and generalisation, this project investigates at
-least 3 of the following:
+To improve training time and generalisation, this project investigates the following:
 
-- [x] Overfitting prevention (early stopping with patience, best weights restored)
-- [x] Weight initialisation strategy (fixed uniform vs fan-in-scaled U(-1/sqrt(fanIn), 1/sqrt(fanIn)))
-- [x] Dynamic learning rate (per-epoch eta decay sweep)
-- [x] Input feature scaling/normalisation (z-score, fitted on training set only)
-- [x] Network architecture tuning (hidden layer size 16/32/64)
+- Overfitting prevention
+- Weight initialisation strategy
+- Dynamic learning rate
 
 Findings live in `docs/experiment-log.md`; per-run curves and final metrics in
 `results/`.
