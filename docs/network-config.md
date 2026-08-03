@@ -1,7 +1,4 @@
-# Network configuration (for the submission template)
-
-Values marked TBD are filled in from `results/metrics_summary.csv` after the
-experiment sweep.
+# Network configuration 
 
 ## Fixed configuration
 
@@ -18,13 +15,11 @@ experiment sweep.
 | Split method | Uniform random shuffle (seed 1541928603), then 70/15/15 split |
 | Stopping conditions | Max 500 epochs, or early stopping: no validation SSE improvement for 20 consecutive epochs (best weights restored) |
 | Initial weights (baseline) | Uniform in [-0.5, 0.5] |
-| Initial weights (fan-in-scaled) | Uniform in [-1/sqrt(fanIn), 1/sqrt(fanIn)] per layer -- course guide Sec 1.3.2 / textbook Sec 7.3.2 |
+| Initial weights (fan-in-scaled) | Uniform in [-1/sqrt(fanIn), 1/sqrt(fanIn)] per layer |
 
 ## Best configuration found
 
-Selected by lowest validation SSE across the sweep (run label `decay_1.00`
-in `results/metrics_summary.csv`). This network produced the Demo.csv
-predictions.
+Selected by lowest validation SSE
 
 | Item | Value |
 |---|---|
