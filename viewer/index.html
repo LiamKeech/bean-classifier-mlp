@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dry Bean Classifier - Results Viewer</title>
+<style>
+  /* Palette roles. Light values on :root; dark values redeclared under both the
+     OS media query and the explicit theme stamp so the toggle wins either way. */
+  :root {
+    color-scheme: light;
+    --plane:          #f9f9f7;
+    --surface:        #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --axis:           #c3c2b7;
+    --border:         rgba(11, 11, 11, 0.10);
+    --series-1:       #2a78d6;
+    --series-2:       #eb6834;
+    --series-3:       #1baf7a;
+    --reference:      #898781;
+    --good:           #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --plane:          #0d0d0d;
+      --surface:        #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --axis:           #383835;
+      --border:         rgba(255, 255, 255, 0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --series-3:       #199e70;
+      --reference:      #898781;
+      --good:           #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane:          #0d0d0d;
+    --surface:        #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255, 255, 255, 0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --series-3:       #199e70;
+    --reference:      #898781;
+    --good:           #0ca30c;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 24px 64px;
+    background: var(--plane);
+    color: var(--text-primary);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  header h1 { font-size: 24px; font-weight: 650; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header p  { margin: 0; color: var(--text-secondary); max-width: 68ch; }
+  .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+
+  button {
+    font: inherit; color: var(--text-secondary); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { color: var(--text-primary); }
+  button:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+  button[aria-pressed="true"], button[aria-selected="true"] {
+    color: var(--text-primary); border-color: var(--axis); font-weight: 600;
+  }
+
+  /* Stat tiles: the headline numbers, before any chart. */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 28px 0; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .tile .k { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+  .tile .v { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; margin-top: 4px; }
+  .tile .s { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+
+  /* One filter row, above everything it scopes. */
+  .filters {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border);
+  }
+  .filters .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-right: 4px; }
+  .filters .spacer { flex: 1 1 24px; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px 22px; margin-bottom: 24px; }
+  .card h2 { font-size: 16px; font-weight: 620; margin: 0 0 2px; }
+  .card .sub { font-size: 13px; color: var(--text-secondary); margin: 0 0 16px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .legend button { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px; }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .legend button[aria-pressed="false"] { opacity: 0.45; }
+  .legend .dashcue { font-size: 11px; color: var(--text-muted); }
+
+  .plot { position: relative; }
+  canvas { display: block; width: 100%; }
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0; transition: opacity .09s;
+    background: var(--surface); border: 1px solid var(--axis); border-radius: 8px;
+    padding: 8px 10px; font-size: 13px; min-width: 150px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.12); z-index: 5;
+  }
+  .tip .th { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+  .tip .row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .tip .row .swatch { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .tip .row .nm { color: var(--text-secondary); }
+  .tip .row .vl { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  tbody td { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+  tbody td:first-child { color: var(--text-primary); font-variant-numeric: normal; }
+  tbody tr.best td { color: var(--text-primary); font-weight: 600; }
+  .tag { font-size: 11px; font-weight: 600; color: var(--good); margin-left: 6px; }
+  .scroll { overflow-x: auto; }
+
+  .missing { background: var(--surface); border: 1px solid var(--axis); border-radius: 12px; padding: 24px; }
+  .missing code { background: var(--plane); padding: 2px 6px; border-radius: 4px; }
+  footer { color: var(--text-muted); font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <header>
+      <h1>Dry Bean Classifier - results</h1>
+      <p id="methodline">Ablation over learning rate, decay, hidden units, initialisation and early stopping.</p>
+    </header>
+    <button id="theme" type="button" aria-pressed="false">Dark</button>
+  </div>
+
+  <div id="app" hidden>
+    <section class="tiles" id="tiles"></section>
+
+    <div class="filters">
+      <span class="label">Ablation</span>
+      <span id="facets" role="tablist"></span>
+      <span class="spacer"></span>
+      <span class="label">Error</span>
+      <button id="metric" type="button">Validation SSE</button>
+      <button id="scale" type="button" aria-pressed="true">Log scale</button>
+    </div>
+
+    <section class="card">
+      <h2 id="curveTitle">SSE per epoch</h2>
+      <p class="sub" id="curveSub"></p>
+      <div class="legend" id="legend"></div>
+      <div class="plot">
+        <canvas id="curves" height="380"></canvas>
+        <div class="tip" id="tip"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Final test accuracy by run</h2>
+      <p class="sub">All 11 runs on the held-out test set (1846 patterns). Axis starts at 99.5% so the runs separate; every value is in the table below.</p>
+      <div class="plot"><svg id="acc" role="img" aria-label="Final test accuracy for each run"></svg></div>
+    </section>
+
+    <section class="card">
+      <h2>All runs</h2>
+      <p class="sub">The table view: every value in the charts above, plus the training-set figures.</p>
+      <div class="scroll"><table id="tbl"></table></div>
+    </section>
+
+    <footer id="foot"></footer>
+  </div>
+
+  <div class="missing" id="missing">
+    <h2>Results bundle not loaded</h2>
+    <p><code>viewer/results-bundle.js</code> is missing. Regenerate it from the repository root with:</p>
+    <p><code>java tools/BundleResults.java</code></p>
+  </div>
+
+</div>
+
+<script src="results-bundle.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var DATA = window.RESULTS_BUNDLE;
+  if (!DATA) return;
+  document.getElementById("missing").hidden = true;
+  document.getElementById("app").hidden = false;
+
+  var runs = DATA.runs;
+  var byLabel = {};
+  runs.forEach(function (r) { byLabel[r.label] = r; });
+
+  // The reference configuration every ablation group varies one factor against.
+  // It is drawn as a recessive grey dashed line rather than a fourth hue, so no
+  // view ever puts more than three categorical colours on screen at once.
+  var REFERENCE = "lr_0.10";
+
+  var FACETS = [
+    { id: "best",     name: "Best run",       runs: ["decay_1.00"] },
+    { id: "lr",       name: "Learning rate",  runs: ["lr_0.05", "lr_0.10", "lr_0.20"], noRef: true },
+    { id: "decay",    name: "Decay",          runs: ["decay_1.00", "decay_0.99", "decay_0.50"] },
+    { id: "hidden",   name: "Hidden units",   runs: ["hidden_16", "hidden_64"] },
+    { id: "init",     name: "Initialisation", runs: ["init_uniform"] },
+    { id: "early",    name: "Early stopping", runs: ["earlystop_off"] },
+    { id: "baseline", name: "Baseline",       runs: ["baseline_h10_plain"] }
+  ];
+
+  var SERIES_VARS = ["--series-1", "--series-2", "--series-3"];
+
+  // The facet can be deep-linked, e.g. index.html#decay.
+  function facetFromHash() {
+    var id = (location.hash || "").replace("#", "");
+    for (var i = 0; i < FACETS.length; i++) if (FACETS[i].id === id) return FACETS[i];
+    return FACETS[1];
+  }
+
+  var state = {
+    facet: facetFromHash(),
+    metric: "valSSE_curve",
+    log: true,
+    hidden: {},
+    hover: null
+  };
+
+  function css(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function fmt(v, dp) { return v.toFixed(dp === undefined ? 2 : dp); }
+
+  function describe(r) {
+    return "η " + r.learningRate + ", decay " + r.decay + ", " + r.hidden +
+           " hidden, " + (r.init === "faninit" ? "fan-in init" : "uniform init") +
+           ", early stopping " + (r.earlyStopping ? "on" : "off");
+  }
+
+  // The series drawn for the current facet: coloured runs first, then the
+  // reference run as a dashed grey control (unless it is already one of them).
+  function activeSeries() {
+    var out = state.facet.runs.filter(function (l) { return byLabel[l]; })
+      .map(function (l, i) {
+        return { run: byLabel[l], colorVar: SERIES_VARS[i % SERIES_VARS.length], dashed: false, isRef: false };
+      });
+    if (!state.facet.noRef && byLabel[REFERENCE]) {
+      out.push({ run: byLabel[REFERENCE], colorVar: "--reference", dashed: true, isRef: true });
+    }
+    return out;
+  }
+  function visibleSeries() {
+    return activeSeries().filter(function (s) { return !state.hidden[s.run.label]; });
+  }
+
+  /* ---------- stat tiles ---------- */
+
+  function best() {
+    return runs.reduce(function (a, b) { return b.testAccuracy > a.testAccuracy ? b : a; });
+  }
+
+  function renderTiles() {
+    var b = best();
+    var m = DATA.methodology;
+    document.getElementById("methodline").textContent =
+      "Seed " + m.seed + ", " + m.split + ". Inputs " + m.scaling + ". " +
+      runs.length + " runs, each varying one factor against the reference configuration.";
+
+    var tiles = [
+      { k: "Best test accuracy", v: fmt(b.testAccuracy, 3) + "%", s: b.label + " (" + b.epochsRun + " epochs)" },
+      { k: "Best configuration", v: b.hidden + " hidden", s: "η " + b.learningRate + ", no decay, fan-in init" },
+      { k: "Test set", v: m.testSize.toLocaleString("en-GB"), s: "of " + (m.trainSize + m.validationSize + m.testSize).toLocaleString("en-GB") + " patterns, " + m.split.split(",")[0] },
+      { k: "Runs compared", v: String(runs.length), s: "5 factors swept, fixed seed throughout" }
+    ];
+    document.getElementById("tiles").innerHTML = tiles.map(function (t) {
+      return '<div class="tile"><div class="k">' + t.k + '</div><div class="v">' + t.v +
+             '</div><div class="s">' + t.s + "</div></div>";
+    }).join("");
+  }
+
+  /* ---------- filter row ---------- */
+
+  function renderFacets() {
+    var host = document.getElementById("facets");
+    host.innerHTML = "";
+    FACETS.forEach(function (f) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = f.name;
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", f.id === state.facet.id ? "true" : "false");
+      b.addEventListener("click", function () {
+        state.facet = f;
+        state.hidden = {};
+        if (history.replaceState) history.replaceState(null, "", "#" + f.id);
+        renderFacets();
+        renderCurves();
+      });
+      host.appendChild(b);
+    });
+  }
+
+  /* ---------- legend ---------- */
+
+  function renderLegend() {
+    var host = document.getElementById("legend");
+    host.innerHTML = "";
+    activeSeries().forEach(function (s) {
+      var on = !state.hidden[s.run.label];
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      b.title = describe(s.run);
+      b.innerHTML = '<span class="swatch" style="background:' + css(s.colorVar) + '"></span>' +
+                    "<span>" + s.run.label + "</span>" +
+                    (s.isRef ? '<span class="dashcue">reference</span>' : "");
+      b.addEventListener("click", function () {
+        // Never let the last visible series be switched off.
+        if (on && visibleSeries().length === 1) return;
+        state.hidden[s.run.label] = on;
+        renderCurves();
+      });
+      host.appendChild(b);
+    });
+  }
+
+  /* ---------- SSE curve chart (canvas) ---------- */
+
+  var cv = document.getElementById("curves");
+  var tip = document.getElementById("tip");
+  var geom = null;
+
+  function renderCurves() {
+    renderLegend();
+
+    var metricName = state.metric === "valSSE_curve" ? "Validation SSE" : "Training SSE";
+    document.getElementById("curveTitle").textContent = metricName + " per epoch: " + state.facet.name;
+    document.getElementById("curveSub").textContent =
+      state.facet.noRef
+        ? "Every other factor held at the reference configuration."
+        : "Grey dashed line is the reference run (" + REFERENCE + "): " + describe(byLabel[REFERENCE]) + ".";
+
+    var series = visibleSeries();
+    var dpr = window.devicePixelRatio || 1;
+    var w = cv.clientWidth || 900;
+    var h = 380;
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+    cv.style.height = h + "px";
+
+    var g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+
+    var pad = { l: 64, r: 108, t: 14, b: 42 };
+    var pw = w - pad.l - pad.r;
+    var ph = h - pad.t - pad.b;
+    if (pw <= 0 || ph <= 0) return;
+
+    var maxEpoch = 1, lo = Infinity, hi = -Infinity;
+    series.forEach(function (s) {
+      var c = s.run[state.metric];
+      maxEpoch = Math.max(maxEpoch, s.run.epochs[s.run.epochs.length - 1] || 1);
+      for (var i = 0; i < c.length; i++) {
+        if (c[i] < lo) lo = c[i];
+        if (c[i] > hi) hi = c[i];
+      }
+    });
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    lo = Math.max(lo, 1e-6);
+    if (hi <= lo) hi = lo * 10;
+
+    var useLog = state.log;
+    var yLo = useLog ? Math.pow(10, Math.floor(Math.log10(lo))) : 0;
+    var yHi = useLog ? Math.pow(10, Math.ceil(Math.log10(hi))) : hi * 1.06;
+
+    function fx(e) { return pad.l + (e - 1) / Math.max(1, maxEpoch - 1) * pw; }
+    function fy(v) {
+      var t = useLog
+        ? (Math.log10(Math.max(v, 1e-6)) - Math.log10(yLo)) / (Math.log10(yHi) - Math.log10(yLo))
+        : (v - yLo) / (yHi - yLo);
+      return pad.t + ph - t * ph;
+    }
+
+    // y ticks
+    var yTicks = [];
+    if (useLog) {
+      for (var p = Math.log10(yLo); p <= Math.log10(yHi) + 1e-9; p++) yTicks.push(Math.pow(10, p));
+    } else {
+      for (var k = 0; k <= 5; k++) yTicks.push(yLo + (yHi - yLo) * k / 5);
+    }
+
+    g.font = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
+    g.textBaseline = "middle";
+
+    // Gridlines and axis: solid hairlines, one shade off the surface.
+    g.lineWidth = 1;
+    yTicks.forEach(function (v) {
+      var y = Math.round(fy(v)) + 0.5;
+      if (y < pad.t || y > pad.t + ph + 1) return;
+      g.strokeStyle = css("--grid");
+      g.beginPath(); g.moveTo(pad.l, y); g.lineTo(pad.l + pw, y); g.stroke();
+      g.fillStyle = css("--text-muted");
+      g.textAlign = "right";
+      g.fillText(v >= 1000 ? v.toExponential(0) : (v >= 1 ? String(Math.round(v)) : v.toPrecision(1)), pad.l - 10, y);
+    });
+
+    // x ticks
+    var step = maxEpoch <= 120 ? 20 : (maxEpoch <= 320 ? 50 : 100);
+    g.textAlign = "center";
+    g.textBaseline = "top";
+    for (var e = 0; e <= maxEpoch; e += step) {
+      var xv = Math.max(1, e);
+      var x = Math.round(fx(xv)) + 0.5;
+      g.strokeStyle = css("--grid");
+      g.beginPath(); g.moveTo(x, pad.t); g.lineTo(x, pad.t + ph); g.stroke();
+      g.fillStyle = css("--text-muted");
+      g.fillText(String(e === 0 ? 1 : e), x, pad.t + ph + 10);
+    }
+    g.strokeStyle = css("--axis");
+    g.beginPath();
+    g.moveTo(pad.l + 0.5, pad.t); g.lineTo(pad.l + 0.5, pad.t + ph); g.lineTo(pad.l + pw, pad.t + ph);
+    g.stroke();
+
+    // axis titles
+    g.fillStyle = css("--text-secondary");
+    g.textAlign = "center";
+    g.fillText("Epoch", pad.l + pw / 2, h - 14);
+    g.save();
+    g.translate(14, pad.t + ph / 2);
+    g.rotate(-Math.PI / 2);
+    g.fillText(metricName + (useLog ? " (log)" : ""), 0, 0);
+    g.restore();
+
+    // series: 2px lines, reference dashed
+    g.lineJoin = "round";
+    g.lineCap = "round";
+    series.forEach(function (s) {
+      var c = s.run[state.metric], ep = s.run.epochs;
+      g.strokeStyle = css(s.colorVar);
+      g.lineWidth = s.isRef ? 1.5 : 2;
+      g.setLineDash(s.dashed ? [5, 4] : []);
+      g.beginPath();
+      for (var i = 0; i < c.length; i++) {
+        var x = fx(ep[i]), y = fy(c[i]);
+        if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.stroke();
+      g.setLineDash([]);
+    });
+
+    // Selective direct labels at each endpoint: a coloured dot carries identity,
+    // the text itself stays in secondary ink.
+    var ends = series.map(function (s) {
+      var c = s.run[state.metric], ep = s.run.epochs;
+      return { s: s, x: fx(ep[ep.length - 1]), y: fy(c[c.length - 1]) };
+    }).sort(function (a, b) { return a.y - b.y; });
+    for (var i = 1; i < ends.length; i++) {
+      if (ends[i].y - ends[i - 1].y < 14) ends[i].y = ends[i - 1].y + 14;
+    }
+    g.textAlign = "left";
+    g.textBaseline = "middle";
+    ends.forEach(function (d) {
+      g.fillStyle = css(d.s.colorVar);
+      g.beginPath(); g.arc(d.x + 8, d.y, 3.5, 0, Math.PI * 2); g.fill();
+      g.fillStyle = css("--text-secondary");
+      g.fillText(d.s.run.label, d.x + 16, d.y);
+    });
+
+    geom = { pad: pad, pw: pw, ph: ph, maxEpoch: maxEpoch, fx: fx, fy: fy, series: series, w: w, h: h };
+    if (state.hover !== null) drawCrosshair();
+  }
+
+  function drawCrosshair() {
+    if (!geom || state.hover === null) return;
+    var g = cv.getContext("2d");
+    var epoch = state.hover;
+    var x = Math.round(geom.fx(epoch)) + 0.5;
+    g.save();
+    g.strokeStyle = css("--axis");
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x, geom.pad.t); g.lineTo(x, geom.pad.t + geom.ph); g.stroke();
+    geom.series.forEach(function (s) {
+      var idx = epoch - 1;
+      var c = s.run[state.metric];
+      if (idx < 0 || idx >= c.length) return;
+      var y = geom.fy(c[idx]);
+      // 2px surface ring keeps overlapping markers readable.
+      g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2);
+      g.fillStyle = css("--surface"); g.fill();
+      g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2);
+      g.fillStyle = css(s.colorVar); g.fill();
+    });
+    g.restore();
+  }
+
+  function moveTip(clientX) {
+    if (!geom) return;
+    var rect = cv.getBoundingClientRect();
+    var px = clientX - rect.left;
+    var t = (px - geom.pad.l) / geom.pw;
+    var epoch = Math.round(1 + t * (geom.maxEpoch - 1));
+    epoch = Math.max(1, Math.min(geom.maxEpoch, epoch));
+    state.hover = epoch;
+    renderCurves();
+
+    var rows = geom.series.map(function (s) {
+      var c = s.run[state.metric];
+      var v = epoch - 1 < c.length ? fmt(c[epoch - 1], 3) : "stopped";
+      return '<div class="row"><span class="swatch" style="background:' + css(s.colorVar) +
+             '"></span><span class="nm">' + s.run.label + '</span><span class="vl">' + v + "</span></div>";
+    }).join("");
+    tip.innerHTML = '<div class="th">Epoch ' + epoch + "</div>" + rows;
+    tip.style.opacity = "1";
+    var tx = geom.fx(epoch) + 14;
+    if (tx + tip.offsetWidth > geom.w) tx = geom.fx(epoch) - tip.offsetWidth - 14;
+    tip.style.left = Math.max(0, tx) + "px";
+    tip.style.top = geom.pad.t + 8 + "px";
+  }
+
+  cv.addEventListener("mousemove", function (ev) { moveTip(ev.clientX); });
+  cv.addEventListener("mouseleave", function () {
+    state.hover = null; tip.style.opacity = "0"; renderCurves();
+  });
+
+  /* ---------- final accuracy dot plot (svg) ---------- */
+
+  function renderAccuracy() {
+    var svg = document.getElementById("acc");
+    var order = [];
+    FACETS.forEach(function (f) {
+      f.runs.forEach(function (l) { if (order.indexOf(l) < 0 && byLabel[l]) order.push(l); });
+    });
+    if (order.indexOf(REFERENCE) < 0) order.push(REFERENCE);
+    runs.forEach(function (r) { if (order.indexOf(r.label) < 0) order.push(r.label); });
+
+    var rows = order.map(function (l) { return byLabel[l]; });
+    var lo = 99.5, hi = 100;
+    var w = document.getElementById("acc").parentNode.clientWidth || 900;
+    var padL = 150, padR = 74, padT = 10, rowH = 30;
+    var h = padT + rows.length * rowH + 34;
+    var pw = w - padL - padR;
+
+    var bestLabel = best().label;
+    var worst = rows.reduce(function (a, b) { return b.testAccuracy < a.testAccuracy ? b : a; });
+
+    function fx(v) { return padL + (v - lo) / (hi - lo) * pw; }
+
+    var parts = [];
+    for (var t = 99.5; t <= 100.0001; t += 0.1) {
+      var x = fx(t).toFixed(1);
+      parts.push('<line x1="' + x + '" y1="' + padT + '" x2="' + x + '" y2="' + (padT + rows.length * rowH) +
+                 '" stroke="' + css("--grid") + '" stroke-width="1"/>');
+      parts.push('<text x="' + x + '" y="' + (padT + rows.length * rowH + 18) + '" fill="' + css("--text-muted") +
+                 '" font-size="11" text-anchor="middle" style="font-variant-numeric:tabular-nums">' + t.toFixed(1) + "%</text>");
+    }
+
+    rows.forEach(function (r, i) {
+      var y = padT + i * rowH + rowH / 2;
+      var x = fx(Math.max(lo, r.testAccuracy));
+      var isBest = r.label === bestLabel;
+      parts.push('<text x="' + (padL - 12) + '" y="' + (y + 4) + '" fill="' +
+                 css(isBest ? "--text-primary" : "--text-secondary") + '" font-size="12.5" text-anchor="end"' +
+                 (isBest ? ' font-weight="650"' : "") + ">" + r.label + "</text>");
+      // connector from the axis floor to the value, then the dot
+      parts.push('<line x1="' + padL + '" y1="' + y + '" x2="' + x + '" y2="' + y +
+                 '" stroke="' + css("--grid") + '" stroke-width="2" stroke-linecap="round"/>');
+      parts.push('<circle cx="' + x + '" cy="' + y + '" r="7" fill="' + css("--surface") + '"/>');
+      parts.push('<circle cx="' + x + '" cy="' + y + '" r="5" fill="' + css("--series-1") + '"><title>' +
+                 r.label + ": " + fmt(r.testAccuracy, 3) + "% test accuracy, " + describe(r) + "</title></circle>");
+      if (isBest || r.label === worst.label) {
+        parts.push('<text x="' + (x + 12) + '" y="' + (y + 4) + '" fill="' + css("--text-secondary") +
+                   '" font-size="12" style="font-variant-numeric:tabular-nums">' + fmt(r.testAccuracy, 3) + "%</text>");
+      }
+    });
+
+    parts.push('<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (padT + rows.length * rowH) +
+               '" stroke="' + css("--axis") + '" stroke-width="1"/>');
+
+    svg.setAttribute("width", w);
+    svg.setAttribute("height", h);
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    svg.innerHTML = parts.join("");
+  }
+
+  /* ---------- table view ---------- */
+
+  function renderTable() {
+    var bestLabel = best().label;
+    var cols = [
+      ["Run", function (r) { return r.label + (r.label === bestLabel ? '<span class="tag">BEST</span>' : ""); }],
+      ["Hidden", function (r) { return r.hidden; }],
+      ["η", function (r) { return r.learningRate; }],
+      ["Decay", function (r) { return r.decay; }],
+      ["Init", function (r) { return r.init === "faninit" ? "fan-in" : "uniform"; }],
+      ["Early stop", function (r) { return r.earlyStopping ? "on (p" + r.patience + ")" : "off"; }],
+      ["Epochs", function (r) { return r.epochsRun; }],
+      ["Train SSE", function (r) { return fmt(r.trainSSE, 4); }],
+      ["Val SSE", function (r) { return fmt(r.valSSE, 4); }],
+      ["Test SSE", function (r) { return fmt(r.testSSE, 4); }],
+      ["Train %", function (r) { return fmt(r.trainAccuracy, 3); }],
+      ["Test %", function (r) { return fmt(r.testAccuracy, 3); }]
+    ];
+    var head = "<thead><tr>" + cols.map(function (c) { return "<th>" + c[0] + "</th>"; }).join("") + "</tr></thead>";
+    var body = "<tbody>" + runs.map(function (r) {
+      return '<tr class="' + (r.label === bestLabel ? "best" : "") + '">' +
+             cols.map(function (c) { return "<td>" + c[1](r) + "</td>"; }).join("") + "</tr>";
+    }).join("") + "</tbody>";
+    document.getElementById("tbl").innerHTML = head + body;
+
+    document.getElementById("foot").textContent =
+      "Generated from results/*.csv by tools/BundleResults.java. " +
+      "Every run uses seed " + DATA.methodology.seed + " and the same " + DATA.methodology.split + ".";
+  }
+
+  /* ---------- controls ---------- */
+
+  document.getElementById("metric").addEventListener("click", function () {
+    state.metric = state.metric === "valSSE_curve" ? "trainSSE_curve" : "valSSE_curve";
+    this.textContent = state.metric === "valSSE_curve" ? "Validation SSE" : "Training SSE";
+    renderCurves();
+  });
+
+  document.getElementById("scale").addEventListener("click", function () {
+    state.log = !state.log;
+    this.setAttribute("aria-pressed", state.log ? "true" : "false");
+    this.textContent = state.log ? "Log scale" : "Linear scale";
+    renderCurves();
+  });
+
+  var themeBtn = document.getElementById("theme");
+  themeBtn.addEventListener("click", function () {
+    var dark = document.documentElement.getAttribute("data-theme") === "dark";
+    document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+    this.textContent = dark ? "Dark" : "Light";
+    this.setAttribute("aria-pressed", dark ? "false" : "true");
+    renderAll();
+  });
+
+  function renderAll() { renderCurves(); renderAccuracy(); }
+
+  var resizeTimer;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(renderAll, 120);
+  });
+
+  renderTiles();
+  renderFacets();
+  renderTable();
+  renderAll();
+})();
+</script>
+</body>
+</html>
